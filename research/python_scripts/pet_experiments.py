@@ -1,6 +1,6 @@
 import torch
 from torch.random import seed
-from transformers.modeling_bert import BertModel, BertConfig
+from transformers.models.bert.modeling_bert import BertModel, BertConfig
 import turbo_transformers
 import time
 from turbo_transformers.layers import PET_Types, PETBertModel, PETBertConfig

@@ -1,7 +1,7 @@
 from tqdm import tqdm
 import torch
 # from torch._C import _load_for_lite_interpreter
-from transformers.modeling_bert import BertModel, BertConfig
+from transformers.models.bert.modeling_bert import BertModel, BertConfig
 import numpy
 import turbo_transformers
 import sys
