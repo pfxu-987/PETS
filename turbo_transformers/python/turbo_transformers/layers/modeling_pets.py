@@ -5,10 +5,10 @@ from torch import nn
 from torch.nn import CrossEntropyLoss, MSELoss
 from torch import autograd
 BertLayerNorm = nn.LayerNorm
-from transformers import PreTrainedModel, prune_linear_layer
+from transformers.modeling_utils import PreTrainedModel, prune_linear_layer
 from transformers.models.bert.modeling_bert import ACT2FN, load_tf_weights_in_bert
 import logging
-from transformers import PretrainedConfig
+from transformers.configuration_utils import PretrainedConfig
 
 logger = logging.getLogger(__name__)
 
