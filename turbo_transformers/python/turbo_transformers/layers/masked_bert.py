@@ -29,13 +29,13 @@ from torch import autograd
 
 BertLayerNorm = nn.LayerNorm
 
-from transformers.modeling_utils import PreTrainedModel, prune_linear_layer
+from transformers import PreTrainedModel, prune_linear_layer
 #from transformers.models.bert.modeling_bert import ACT2FN, BertLayerNorm, load_tf_weights_in_bert
 from transformers.models.bert.modeling_bert import ACT2FN, load_tf_weights_in_bert
 
 import logging
 
-from transformers.configuration_utils import PretrainedConfig
+from transformers import PretrainedConfig
 
 
 logger = logging.getLogger(__name__)
