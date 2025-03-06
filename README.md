@@ -49,4 +49,14 @@
    pip install  `find . -name *whl``
    ```
 
+9. 如果想升级python版本，可以通过conda创建一个新的环境，进入新环境后，重新利用以下命令进行编译
+
+   ```bash
+   rm -rf build && mkdir -p build && cd build 
+   cmake .. -DPYTHON_EXECUTABLE=$(which python3.9) -DWITH_GPU=ON  -DWITH_PROFILER=ON -DCMAKE_BUILD_TYPE=Release -DCUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda/ -DCUDA_ARCHS="60;61;70;75;86" 
+   make -j  
+   pip uninstall -y turbo-transformers 
+   pip install  `find . -name *whl``
+   ```
+
    
