@@ -1,5 +1,5 @@
 
-from numpy import Inf
+from numpy import inf
 import torch
 from perf_model.pet_perf_model import AlphaModel, BetaModel
 
