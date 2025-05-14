@@ -91,19 +91,17 @@ void CUDADeviceContext::Destroy() {
 }
 
 CUDADeviceContext::~CUDADeviceContext() {
- Wait();
- TT_ENFORCE_CUDA_SUCCESS(cublasDestroy(handle_));
- cusparseDestroy(sp_handle_);
- TT_ENFORCE_CUDA_SUCCESS(cudaStreamDestroy(stream_));
-
-  // Do not do resource deallocation in destroctor of singleton managing
-  // GPU resources. Becauase the singleton destructor is called after the
+  // Do not do resource deallocation in destructor of singleton managing
+  // GPU resources. Because the singleton destructor is called after the
   // program exits, when CUDA has already been shutdown.
   // Details can be referred to:
   // https://stackoverflow.com/questions/35815597/cuda-call-fails-in-destructor.
+  //
+  // Use Destroy() method to explicitly clean up resources before program exit.
 }
 
 std::vector<std::shared_ptr<CUDADeviceContext>> CUDADeviceContext::instances;
+std::unordered_map<int, int> CUDADeviceContext::task_to_stream_map;
 int CUDADeviceContext::num_streams = 1;
 
 }  // namespace core

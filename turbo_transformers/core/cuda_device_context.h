@@ -21,6 +21,7 @@
 #include <memory>
 
 #include <map>
+#include <unordered_map>
 
 #include "macros.h"
 
@@ -42,9 +43,18 @@ class CUDADeviceContext {
   }
 
   static std::shared_ptr<CUDADeviceContext> GetInstance(int n) {
-    // FIXME: GetInstance for the nth task only works when tasks call
-    // me in sequential order.
-    int stream_id = (n % num_streams);
+    // Get the stream_id for this task from custom mapping or fallback to default
+    int stream_id;
+    if (task_to_stream_map.count(n) > 0) {
+      stream_id = task_to_stream_map[n];
+      // Ensure stream_id is valid
+      if (stream_id >= num_streams) {
+        stream_id = stream_id % num_streams;
+      }
+    } else {
+      // Default fallback to the original behavior
+      stream_id = (n % num_streams);
+    }
 
     while (instances.size() <= stream_id)
     {
@@ -56,6 +66,23 @@ class CUDADeviceContext {
     return instances.at(stream_id);
   }  
 
+  // Set a specific mapping for a task_id to a stream_id
+  static void SetTaskToStreamMapping(int task_id, int stream_id) {
+    task_to_stream_map[task_id] = stream_id;
+  }
+
+  // Clear all mappings and return to default behavior
+  static void ClearTaskToStreamMapping() {
+    task_to_stream_map.clear();
+  }
+
+  // Get the current mapping for a task_id
+  static int GetStreamIdForTask(int task_id) {
+    if (task_to_stream_map.count(task_id) > 0) {
+      return task_to_stream_map[task_id];
+    }
+    return (task_id % num_streams); // Default mapping
+  }
 
   static void SyncAllInstances() {
     for (auto& instance : instances) {
@@ -77,7 +104,7 @@ class CUDADeviceContext {
 
  public:
   static int num_streams;
-
+  static std::unordered_map<int, int> task_to_stream_map;
 
  private:
   static std::vector<std::shared_ptr<CUDADeviceContext>> instances;

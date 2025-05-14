@@ -1,0 +1,26 @@
+Applied PET Type: maskbert (ID: 0)
+Model Type: bert_large
+
+Tuned Model Structure:
+--------------------------------------------------
+
+Available Methods and Attributes:
+  backend
+  config
+  from_npz
+  from_pretrained
+  from_torch
+  load_new_task_from_torch
+  pooler
+  shared_bertmodel_nopooler
+
+Model String Representation:
+<turbo_transformers.layers.modeling_shared_bert.SharedBertModel object at 0x7f6d25effa30>
+
+Loaded Tasks:
+No task information available
+
+Parameters Comparison:
+Base model parameters (approximate): 0
+
+Memory Usage for this PET: 216.0 MB

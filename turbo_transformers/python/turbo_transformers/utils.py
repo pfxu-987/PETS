@@ -22,12 +22,16 @@ __all__ = [
     'pref_guard', 'set_num_threads', 'set_num_streams',
     'set_stderr_verbose_level', 'disable_perf', 'enable_perf',
     'reset_allocator_schema', 'bert_opt_mem_allocate_api',
-    'print_results', 'get_gpu_mem_usage'
+    'print_results', 'get_gpu_mem_usage', 'set_task_to_stream_mapping',
+    'clear_task_to_stream_mapping', 'get_stream_id_for_task'
 ]
 
 set_num_threads = cxx.set_num_threads
 set_num_streams = cxx.set_num_streams
 set_stderr_verbose_level = cxx.set_stderr_verbose_level
+set_task_to_stream_mapping = cxx.set_task_to_stream_mapping
+clear_task_to_stream_mapping = cxx.clear_task_to_stream_mapping
+get_stream_id_for_task = cxx.get_stream_id_for_task
 
 disable_perf = cxx.disable_perf
 enable_perf = cxx.enable_perf

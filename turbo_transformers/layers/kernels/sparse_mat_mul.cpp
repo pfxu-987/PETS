@@ -1,4 +1,3 @@
-
 #include "sparse_mat_mul.h"
 #include "turbo_transformers/core/cuda_device_context.h"
 
@@ -87,7 +86,9 @@ void SparseMatMulCsr::Clear() {
 }
 
 SparseMatMulCsr::~SparseMatMulCsr() {
-  sputnik_spmm_.Clear();
+  // Do not call Clear() in destructor as it may be called during program shutdown
+  // when CUDA driver is already shutting down.
+  // Resources should be explicitly cleaned up using Clear() before program exit.
 }
 
 std::vector<std::shared_ptr<SparseMatMulCsr>> SparseMatMulCsr::instances;

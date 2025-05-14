@@ -310,10 +310,10 @@ private:
 
     void destroy_sparse_matmuls() {
         std::vector<int> stream_id_vec;
-        for (auto const&x : sparse_matmul_map_) {
+        for (auto const& _ : sparse_matmul_map_) {
 #ifdef PRINT_DEBUG_INFO
             std::cout << "Destroy SparseMatmul for shadow task #" 
-                    << loaded_pets_types_[x.first] << "..." << std::endl;
+                    << loaded_pets_types_[_.first] << "..." << std::endl;
 #endif     
 #ifdef PRINT_DEBUG_INFO
             std::cout << "Done." << std::endl;

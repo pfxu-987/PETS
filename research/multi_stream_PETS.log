@@ -1,0 +1,20 @@
+total_queries:1024,task_num:32,stream_num:32,seq_len:4 QPS: 3935.2893284311194
+total_queries:1024,task_num:32,stream_num:16,seq_len:4 QPS: 3898.8606035518483
+total_queries:1024,task_num:32,stream_num:8,seq_len:4 QPS: 3916.6605759623176
+total_queries:1024,task_num:32,stream_num:4,seq_len:4 QPS: 3968.0653727811005
+total_queries:1024,task_num:32,stream_num:2,seq_len:4 QPS: 3749.7158627895624
+total_queries:1024,task_num:32,stream_num:1,seq_len:4 QPS: 3108.3214458733264
+total_queries:1024,task_num:32,stream_num:32,seq_len:32 QPS: 1927.403208955569
+total_queries:1024,task_num:32,stream_num:16,seq_len:32 QPS: 1913.8193226730186
+total_queries:1024,task_num:32,stream_num:8,seq_len:32 QPS: 1921.417280387826
+total_queries:1024,task_num:32,stream_num:4,seq_len:32 QPS: 1902.2162587005466
+total_queries:1024,task_num:32,stream_num:2,seq_len:32 QPS: 1742.3790401442725
+total_queries:1024,task_num:32,stream_num:1,seq_len:32 QPS: 1530.7497155973679
+total_queries:1024,task_num:32,stream_num:32,seq_len:64 QPS: 1100.503736296286
+total_queries:1024,task_num:32,stream_num:16,seq_len:64 QPS: 1100.3078210782874
+total_queries:1024,task_num:32,stream_num:8,seq_len:64 QPS: 1089.9996317575067
+total_queries:1024,task_num:32,stream_num:4,seq_len:64 QPS: 1084.833952838436
+total_queries:1024,task_num:32,stream_num:2,seq_len:64 QPS: 1075.4828155818639
+total_queries:1024,task_num:32,stream_num:1,seq_len:64 QPS: 994.0206474125445
+total_queries:1024,task_num:32,stream_num:32,seq_len:128 QPS: 562.8545874610087
+total_queries:1024,task_num:32,stream_num:16,seq_len:128 

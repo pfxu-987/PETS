@@ -37,6 +37,24 @@ class Shadow_Server:
         turbo_transformers.set_num_threads(4)
         del self.torch_model
     
+    def log_simple_layer_shapes(self, model, log_file="model_layers_simple.log"):
+        """
+        只打印模型各层名称和形状，每个形状显示在层名的下一行
+        """
+        with open(log_file, "w") as f:
+            f.write(f"模型类型: {self.model_type}\n\n")
+            
+            # 遍历所有命名参数获取层名和形状
+            for name, param in model.named_parameters():
+                # 显示所有参数，包括binary_mask
+                f.write(f"{name}\n")
+                f.write(f"{tuple(param.shape)}\n")
+            
+            # 添加总结信息
+            f.write(f"\n总参数层数: {len(list(model.named_parameters()))}\n")
+        
+        print(f"模型层形状已记录到 {log_file}")
+    
     def load_new_task(self, pet_type, model_path = None):
         """
         Load shadows 
@@ -54,10 +72,76 @@ class Shadow_Server:
         mem_before_load = turbo_transformers.get_gpu_mem_usage()
         self.base_tt_model.load_new_task_from_torch(pet_bert_model)
         mem_after_load = turbo_transformers.get_gpu_mem_usage()
-        print("GPU memory usage for PET: {} MB".format(mem_after_load - mem_before_load))
+        self.memory_usage = mem_after_load - mem_before_load
+        print("GPU memory usage for PET: {} MB".format(self.memory_usage))
+        
+        # 记录简化版的层形状信息
+        pet_type_name = "unknown"
+        if pet_type == PET_Types.adapters:
+            pet_type_name = "adapters"
+        elif pet_type == PET_Types.maskbert:
+            pet_type_name = "maskbert"
+        elif pet_type == PET_Types.diff_pruning:
+            pet_type_name = "diff_pruning"
+        elif pet_type == PET_Types.bitfit:
+            pet_type_name = "bitfit"
+        else:
+            pet_type_name = f"type_{pet_type}"
+            
+        task_layers_simple_log_file = f"model_layers_{pet_type_name}.log"
+        self.log_simple_layer_shapes(pet_bert_model, task_layers_simple_log_file)
+        
+        # 尝试获取模型中掩码相关的属性或缓冲区
+        try:
+            mask_log_file = f"model_masks_{pet_type_name}.log"
+            with open(mask_log_file, "w") as f:
+                f.write(f"模型类型: {self.model_type} - {pet_type_name}\n\n")
+                
+                # 检查是否有二进制掩码或其他特殊属性
+                # 检查命名缓冲区（named_buffers）
+                has_buffers = False
+                for name, buffer in pet_bert_model.named_buffers():
+                    has_buffers = True
+                    f.write(f"Buffer: {name}\n")
+                    f.write(f"{tuple(buffer.shape)}\n")
+                    # 对于二进制掩码，显示非零元素的数量和百分比
+                    if 'mask' in name:
+                        non_zeros = torch.sum(buffer != 0).item()
+                        total = buffer.numel()
+                        percentage = 100.0 * non_zeros / total if total > 0 else 0
+                        f.write(f"非零元素: {non_zeros}/{total} ({percentage:.2f}%)\n\n")
+                    else:
+                        f.write("\n")
+                
+                if not has_buffers:
+                    f.write("没有找到命名缓冲区\n\n")
+                
+                # 检查是否有特殊属性
+                special_attrs = ["binary_mask", "mask", "pruning_mask", "adapter"]
+                found_special_attr = False
+                
+                for attr_name in special_attrs:
+                    for name, module in pet_bert_model.named_modules():
+                        if hasattr(module, attr_name):
+                            found_special_attr = True
+                            attr = getattr(module, attr_name)
+                            f.write(f"特殊属性: {name}.{attr_name}\n")
+                            if hasattr(attr, 'shape'):
+                                f.write(f"{tuple(attr.shape)}\n\n")
+                            else:
+                                f.write(f"类型: {type(attr)}\n\n")
+                
+                if not found_special_attr:
+                    f.write("没有找到特殊掩码属性\n")
+            
+            print(f"掩码信息已记录到 {mask_log_file}")
+        except Exception as e:
+            print(f"记录掩码信息时出错: {str(e)}")
 
     def init(self):
         self.load_torch_model()
+        # 记录简化版的层形状信息
+        self.log_simple_layer_shapes(self.torch_model, "model_layers_base.log")
         self.load_shared_w()
 
     def prepare_inputs(self, n_queries = 1024, bs_per_task = 1, seq_len = 128, n_tasks = 4):
@@ -105,11 +189,10 @@ class Shadow_Server:
     def prepare_tasks(self, n_tasks):
         print("Loading {} tasks...".format(n_tasks))
         for i in tqdm.tqdm(range(n_tasks)):
-           # server.load_new_task(PET_Types.adapters)
-           # server.load_new_task(PET_Types.maskbert)
+           #server.load_new_task(PET_Types.adapters)
+           #server.load_new_task(PET_Types.maskbert)
            # server.load_new_task(PET_Types.diff_pruning)
-           # server.load_new_task(PET_Types.bitfit)
-            server.load_new_task(i % 4)
+           server.load_new_task(PET_Types.bitfit)
         print("Done.")
 
 if __name__ == '__main__':
@@ -122,7 +205,9 @@ if __name__ == '__main__':
     mem_before_load = turbo_transformers.get_gpu_mem_usage()
     server.prepare_tasks(n_tasks)
     mem_after_load = turbo_transformers.get_gpu_mem_usage()
-    print("GPU memory usage for weight: {} MB".format(mem_after_load - mem_before_load))
+    memory_usage = mem_after_load - mem_before_load
+    print("GPU memory usage for weight: {} MB".format(memory_usage))
+    
     for bs_per_task in [1]:
         for seq_len in [128]:
             #n_queries = 1024

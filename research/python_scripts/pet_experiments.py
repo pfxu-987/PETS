@@ -125,7 +125,7 @@ class PET_Server:
     
         for i in range(self.cfg.total_queries):
             # randomly assign the query to a task
-            task_id = random.randint(0,self.cfg.num_tasks-1)
+            task_id = random.randint(0, self.cfg.num_tasks - 1)
             task_type = self.task_types[task_id]
             generated_seq_len = int(normal[i])
             if generated_seq_len > 128:
@@ -183,10 +183,10 @@ class PET_Server:
         for iter in range(self.cfg.iterations):
             # for batch in tqdm.tqdm(batches):
             for batch in batches:
-                # if len(batch) == 3:
-                self.base_tt_model(batch[0], task_ids = batch[1], n_samples = batch[2])
-                # elif len(batch) == 4:
-                    # self.base_tt_model(batch[0], task_ids = batch[1], n_samples = batch[2], minibatch_lens = batch[3])
+                if len(batch) == 3:
+                    self.base_tt_model(batch[0], task_ids = batch[1], n_samples = batch[2])
+                elif len(batch) == 4:
+                    self.base_tt_model(batch[0], task_ids = batch[1], n_samples = batch[2], minibatch_lens = batch[3])
         
         elasp_time = time.time() - start
         average_time = elasp_time / self.cfg.iterations
@@ -207,8 +207,8 @@ class PET_Server:
         self.cfg.total_queries = 1024
         # for task_num in [32]:
         for task_num in [128, 64, 32]:
-            for mean_v in [32]:
-                for std_v in [1,2,4,8]:
+            for mean_v in [16,32,64]:
+                for std_v in [0,1,2,4,8]:
                     self.cfg.num_tasks = task_num
                     self.cfg.mean_v = mean_v
                     self.cfg.std_v = std_v
@@ -223,7 +223,7 @@ class PET_Server:
 
                     # batch scheduling 
                     self.cfg.schedule_policy = "two_stage_schedule"
-                    for stage in [1,2,3]:
+                    for stage in [1,2,3,4]:
                         self.cfg.schedule_stage = stage
                         cur_cfg = "total_queries:{},task_num:{},mean_v:{},std_v:{},stage:{} ".format(self.cfg.total_queries, self.cfg.num_tasks, mean_v, std_v, stage)
                         print(cur_cfg,flush=True)

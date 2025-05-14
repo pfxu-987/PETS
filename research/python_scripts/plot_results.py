@@ -157,7 +157,7 @@ def plot_figure_11(cfg):
         for i, data in enumerate(plot_data):
             ax.plot(streams, data, label = "seq={}".format(seq_lens[i]),marker=markers[i])
             ax.legend()
-        plt.ylim((0.6,1.2))
+        plt.ylim((0.5,1.5))
         plt.xscale("log")
         ax.set_xticks(streams)
         ax.set_xticklabels(streams)
@@ -222,6 +222,148 @@ def plot_figure_12(cfg):
     print("reproduced_figures/fig_12.jpg")
     plt.savefig("reproduced_figures/fig_12.jpg",bbox_inches='tight')
 
+def plot_adapter_results(cfg):
+    model = cfg.model
+    results_path = cfg.results_path
+    adapter_log_file_path = os.path.join(results_path,"pets",model,"multi_stream_PETS.log")
+    if not os.path.exists(adapter_log_file_path):
+        print(adapter_log_file_path,"does not exist!")
+        return
+
+    # 读取日志文件
+    with open(adapter_log_file_path, 'r') as f:
+        lines = f.readlines()
+
+    # 提取数据
+    data = {}
+    for line in lines:
+        if 'QPS:' in line:
+            parts = line.split(' QPS: ')[0].split(',')
+            # 解析参数
+            task_num = int(parts[1].split(':')[1])
+            stream_num = int(parts[2].split(':')[1])
+            seq_len = int(parts[3].split(':')[1])
+            
+            # 获取QPS值
+            qps = float(line.split('QPS: ')[1])
+            
+            if seq_len not in data:
+                data[seq_len] = {}
+            data[seq_len][stream_num] = qps
+
+    # 准备绘图数据
+    seq_lens = sorted(data.keys())
+    stream_nums = [1, 2, 4, 8,16,32]  # 固定stream_num顺序
+    
+    # 创建两个图表：原始数据和归一化数据
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    
+    # 为每个序列长度绘制一条线
+    markers = ["o","^","s","d","*","x","v","<",">"]
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
+    
+    # 绘制原始QPS数据
+    for i, seq_len in enumerate(seq_lens):
+        x_values = []
+        y_values = []
+        for stream in stream_nums:
+            if stream in data[seq_len]:
+                x_values.append(stream)
+                y_values.append(data[seq_len][stream])
+        
+        if x_values:  # 只有在有数据的情况下才绘制
+            ax1.plot(x_values, y_values, 
+                    marker=markers[i % len(markers)],
+                    color=colors[i % len(colors)],
+                    label=f'seq_len={seq_len}',
+                    linewidth=2)
+    
+    # 设置原始数据图表属性
+    ax1.set_xlabel('Number of Streams')
+    ax1.set_ylabel('QPS (Queries Per Second)')
+    ax1.set_title('Adapter Performance (Raw QPS)')
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    ax1.legend(loc='best')
+    ax1.set_xticks(stream_nums)
+    
+    # 绘制归一化数据
+    for i, seq_len in enumerate(seq_lens):
+        x_values = []
+        y_values = []
+        # 获取stream_num=1的基准值
+        base_value = data[seq_len].get(1, None)
+        if base_value is None:
+            continue  # 如果没有stream_num=1的数据，则跳过
+            
+        for stream in stream_nums:
+            if stream in data[seq_len]:
+                x_values.append(stream)
+                # 归一化: 当前值/基准值
+                y_values.append(data[seq_len][stream] / base_value)
+        
+        if x_values:  # 只有在有数据的情况下才绘制
+            ax2.plot(x_values, y_values, 
+                    marker=markers[i % len(markers)],
+                    color=colors[i % len(colors)],
+                    label=f'seq_len={seq_len}',
+                    linewidth=2)
+    
+    # 设置归一化图表属性
+    ax2.set_xlabel('Number of Streams')
+    ax2.set_ylabel('Normalized QPS (relative to stream_num=1)')
+    ax2.set_title('Adapter Performance (Normalized)')
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    ax2.legend(loc='best')
+    ax2.set_xticks(stream_nums)
+    
+    # 调整布局
+    plt.tight_layout()
+    
+    # 保存图形
+    output_path = os.path.join("reproduced_figures", "adapter_results.jpg")
+    print(output_path)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    
+    # 单独保存归一化图表
+    plt.figure(figsize=(10, 6))
+    
+    # 重新绘制归一化数据（单独图表）
+    for i, seq_len in enumerate(seq_lens):
+        x_values = []
+        y_values = []
+        # 获取stream_num=1的基准值
+        base_value = data[seq_len].get(1, None)
+        if base_value is None:
+            continue  # 如果没有stream_num=1的数据，则跳过
+            
+        for stream in stream_nums:
+            if stream in data[seq_len]:
+                x_values.append(stream)
+                # 归一化: 当前值/基准值
+                y_values.append(data[seq_len][stream] / base_value)
+        
+        if x_values:  # 只有在有数据的情况下才绘制
+            plt.plot(x_values, y_values, 
+                    marker=markers[i % len(markers)],
+                    color=colors[i % len(colors)],
+                    label=f'seq_len={seq_len}',
+                    linewidth=2)
+    
+    # 设置归一化单独图表属性
+    plt.xlabel('Number of Streams')
+    plt.ylabel('Normalized QPS (relative to stream_num=1)')
+    plt.title('Adapter Performance (Normalized to stream_num=1)')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(loc='best')
+    plt.xticks(stream_nums)
+    
+    # 保存归一化图表
+    norm_output_path = os.path.join("reproduced_figures", "adapter_results_normalized.jpg")
+    print(norm_output_path)
+    plt.savefig(norm_output_path, dpi=300, bbox_inches='tight')
+    
+    plt.close('all')
+
 def plot(cfg):
     exp_name = cfg.exp_name
     if exp_name == "figure_7":
@@ -232,6 +374,8 @@ def plot(cfg):
         plot_figure_11(cfg)
     elif exp_name == "figure_12":
         plot_figure_12(cfg)
+    elif exp_name == "adapter":
+        plot_adapter_results(cfg)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -249,7 +393,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--exp_name",
         type=str,
-        choices=['figure_7','figure_8','figure_11','figure_12']
+        choices=['figure_7','figure_8','figure_11','figure_12','adapter']
     )
 
     cfg = parser.parse_args()

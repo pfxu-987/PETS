@@ -323,7 +323,7 @@ class Tensor {
     return const_cast<Tensor *>(this)->operator[](n);
   }
 
-  void slice_to(Tensor & output, int64_t start, int64_t end, int64_t seq_len = NULL, int64_t seq_dim = NULL) {
+  void slice_to(Tensor & output, int64_t start, int64_t end, int64_t seq_len = 0, int64_t seq_dim = 0) {
     // slice the tensor along dim 0
 
     TT_ENFORCE_LT(start, end, "start must be smaller than end");
@@ -366,7 +366,7 @@ class Tensor {
     output.tensor_ = std::move(result);
   }
 
-  void slice_to( Tensor & output, int64_t start, int64_t end, int64_t seq_len = NULL, int64_t seq_dim = NULL) const {
+  void slice_to( Tensor & output, int64_t start, int64_t end, int64_t seq_len = 0, int64_t seq_dim = 0) const {
     const_cast<Tensor *>(this)->slice_to(output, start, end, seq_len, seq_dim);
   }
 

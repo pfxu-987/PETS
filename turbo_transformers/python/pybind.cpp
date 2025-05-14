@@ -34,6 +34,9 @@
 #include "turbo_transformers/layers/positionwise_ffn.h"
 #include "turbo_transformers/layers/prepare_bert_masks.h"
 #include "turbo_transformers/layers/sequence_pool.h"
+#include "turbo_transformers/core/cuda_device_context.h"
+#include "turbo_transformers/core/memory.h"
+#include "turbo_transformers/layers/kernels/sparse_mat_mul.h"
 
 namespace turbo_transformers {
 namespace python {
@@ -62,10 +65,28 @@ static void BindConfig(py::module &m) {
       .def("get_blas_provider", &core::GetBlasProvider);
 }
 
+// Function to clean up CUDA resources before program exit
+void cleanup_cuda_resources() {
+  // 清理所有CUDA设备上下文
+  for (int i = 0; i < core::CUDADeviceContext::num_streams; ++i) {
+    // 使用指针而不是引用，并调用get()获取原始指针
+    auto cuda_ctx = core::CUDADeviceContext::GetInstance(i);
+    if (cuda_ctx) {
+      cuda_ctx->Destroy();  // 使用->操作符访问方法
+    }
+  }
+  
+  // 同步设备以确保所有操作完成
+  cudaDeviceSynchronize();
+}
+
 PYBIND11_MODULE(turbo_transformers_cxx, m) {
   char *argv[] = {strdup("turbo_transformers_cxx"), nullptr};
   int argc = 1;
   loguru::init(argc, argv);
+
+  // Register cleanup function to be called at program exit
+  py::module::import("atexit").attr("register")(py::cpp_function(cleanup_cuda_resources));
 
   auto config_module =
       m.def_submodule("config", "compile configuration of turbo_transformers");
@@ -79,6 +100,15 @@ PYBIND11_MODULE(turbo_transformers_cxx, m) {
   m.def("print_results", &core::PrintResults);
   m.def("set_num_threads", &core::SetNumThreads);
   m.def("set_num_streams", &core::SetNumStreams);
+  m.def("set_task_to_stream_mapping", [](int task_id, int stream_id) {
+    core::CUDADeviceContext::SetTaskToStreamMapping(task_id, stream_id);
+  });
+  m.def("clear_task_to_stream_mapping", []() {
+    core::CUDADeviceContext::ClearTaskToStreamMapping();
+  });
+  m.def("get_stream_id_for_task", [](int task_id) -> int {
+    return core::CUDADeviceContext::GetStreamIdForTask(task_id);
+  });
   m.def("get_gpu_mem_usage", &core::GetGpuMemUsage);
 
   m.def("bert_opt_mem_allocate_api",

@@ -27,6 +27,7 @@ if (WITH_GPU)
             gpu_transpose_kernel.cu
             gpu_embedding_kernel.cu
             gpu_utils.cu
+            fused_adapter_kernel.cu
             )
     target_link_libraries(tt_kernels PUBLIC cudart cuda cusparse)
 endif()

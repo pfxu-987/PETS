@@ -1,4 +1,3 @@
-
 from numpy import inf
 import torch
 from perf_model.pet_perf_model import AlphaModel, BetaModel
@@ -59,6 +58,11 @@ class PET_Scheduler:
         
         task_ids = torch.LongTensor(list(different_tasks))
         n_samples = torch.LongTensor(n_samples)
+        
+        # # not merge
+        # n_samples = [1 for _ in range(len(input_ids))]
+        # n_samples = torch.LongTensor(n_samples)
+        # task_ids = torch.LongTensor(list(task_ids))
 
         batch = [input_ids, task_ids, n_samples]
         return batch
@@ -140,7 +144,7 @@ class PET_Scheduler:
             state_1st_stage.append(0)
             split_idx_list.append(0)
             for j in range(1, len(queries)):
-                min_cost = Inf  # INF
+                min_cost = inf  # INF
                 split_idx = 0
                 for k in range(1, j+1):
                     tmp = state_1st_stage[k-1] + self.beta(queries[j][2], j-k+1, queries[j][1])
@@ -183,7 +187,7 @@ class PET_Scheduler:
         split_idx_list.append(0)
 
         for i in range(1, len(mini_batches)):
-            min_cost = Inf  # INF
+            min_cost = inf  # INF
             split_idx = 0
             for j in range(1, i+1):
                 total_samples = mini_batch_sum[i] - mini_batch_sum[j-1]
