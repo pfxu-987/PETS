@@ -56,24 +56,65 @@ void BertAttention::EnforceShapeAndType() const {
 }
 
 void BertAttention::load_new_task(  
-    int & pet_type,
-    core::Tensor &task_qkv_weight_mask, 
-    core::Tensor &task_qkv_weight_diff,
-    core::Tensor &task_qkv_bias,
-    core::Tensor &task_output_weight_mask,
-    core::Tensor &task_output_weight_diff,
-    core::Tensor &task_output_bias,
-    core::Tensor &task_layer_norm_weight,
-    core::Tensor &task_layer_norm_bias,
-    core::Tensor &down_scale_w,
-    core::Tensor &down_scale_b,
-    core::Tensor &up_scale_w,
-    core::Tensor &up_scale_b 
+    int pet_type_int,
+    core::Tensor& qkv_weight_mask_tensor,
+    core::Tensor& qkv_weight_diff_tensor,
+    core::Tensor& qkv_bias_tensor,
+    core::Tensor& output_weight_mask_tensor,
+    core::Tensor& output_weight_diff_tensor,
+    core::Tensor& output_bias_tensor,
+    core::Tensor& output_layerNorm_weight_tensor,
+    core::Tensor& output_layerNorm_bias_tensor,
+    core::Tensor& down_scale_w_tensor,
+    core::Tensor& down_scale_b_tensor,
+    core::Tensor& up_scale_w_tensor,
+    core::Tensor& up_scale_b_tensor
 ) {
-    int qkv_type = (pet_type == ADAPTERS) ? STANDARD : pet_type;
-    qkv_manager.load_new_task(qkv_type, false, &task_qkv_weight_mask, &task_qkv_weight_diff, &task_qkv_bias, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
-    output_manager.load_new_task(pet_type, true, &task_output_weight_mask, &task_output_weight_diff, &task_output_bias, &task_layer_norm_weight, &task_layer_norm_bias, 
-      &down_scale_w, &down_scale_b, &up_scale_w, &up_scale_b);
+    PET_TYPEs current_pet_type_for_output = static_cast<PET_TYPEs>(pet_type_int);
+    PET_TYPEs current_pet_type_for_qkv = static_cast<PET_TYPEs>(pet_type_int);
+
+    if (current_pet_type_for_qkv == ADAPTERS || current_pet_type_for_qkv == LORA) {
+        current_pet_type_for_qkv = STANDARD;
+    }
+
+    // For QKV, PETs like Adapters/LoRA (if they were to apply here) would not typically add their own LayerNorm
+    // MaskBERT doesn't have bias/LN for QKV.
+    // DiffPruning and BitFit might influence bias for QKV, but not typically a separate LN.
+    // So, has_layer_norm for qkv_manager_ is generally false for these specific params.
+    qkv_manager.load_new_task(
+        current_pet_type_for_qkv, // Use modified type for QKV manager
+        false, // has_layer_norm is false for QKV-specific PET params here
+        &qkv_weight_mask_tensor, 
+        &qkv_weight_diff_tensor, 
+        &qkv_bias_tensor, 
+        nullptr, // task_layer_norm_weight for QKV
+        nullptr, // task_layer_norm_bias for QKV
+        nullptr, // down_scale_w for QKV (not used by ADAPTERS/LORA here)
+        nullptr, // down_scale_b for QKV
+        nullptr, // up_scale_w for QKV
+        nullptr  // up_scale_b for QKV
+    );
+
+    // For the output projection part (where Adapters/LoRA apply their projections and LN)
+    bool has_ln_for_output_pet = true; // Default assumption
+    if (current_pet_type_for_output == MASK_BERT) { // MASK_BERT doesn't have its own LN parameters for output
+        has_ln_for_output_pet = false;
+    }
+    // Other PET types (DiffPruning, BitFit, Adapters, LoRA) will use the provided out_ln_w/b for their task-specific LN
+
+    output_manager.load_new_task(
+        current_pet_type_for_output, // Use original pet_type for output manager
+        has_ln_for_output_pet, 
+        &output_weight_mask_tensor, 
+        &output_weight_diff_tensor, 
+        &output_bias_tensor, 
+        &output_layerNorm_weight_tensor, 
+        &output_layerNorm_bias_tensor,
+        &down_scale_w_tensor, // These are for Adapter/LoRA on the output dense layer
+        &down_scale_b_tensor,
+        &up_scale_w_tensor,
+        &up_scale_b_tensor
+    );
 }
 
 BertAttention::~BertAttention() {

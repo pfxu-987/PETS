@@ -19,6 +19,7 @@ class PET_Types:
     bitfit = 2
     adapters = 3
     standard = 4
+    lora = 5 # Added lora
 
 
 class PETLinear(nn.Linear):
@@ -60,6 +61,10 @@ class PETLinear(nn.Linear):
             self.down_scale_b = nn.Parameter(torch.rand(64)-0.5)
             self.up_scale_w = nn.Parameter(torch.rand(64, self.weight.size(0))-0.5)
             self.up_scale_b = nn.Parameter(torch.rand(self.weight.size(0))-0.5)
+        
+        elif(pet_type == PET_Types.lora): # Added lora
+            self.lora_A = nn.Parameter(torch.rand(self.weight.size(0),8)-0.5)
+            self.lora_B = nn.Parameter(torch.rand(8, self.weight.size(0))-0.5)
 
     def get_sparse_weight(self, sparsity):
         w = torch.zeros_like(self.weight)
@@ -86,6 +91,12 @@ class PETLinear(nn.Linear):
             output = nn.functional.linear(dense_output,self.down_scale_w.t()) + self.down_scale_b 
             output = ACT2FN["gelu"](output)
             output = nn.functional.linear(output,self.up_scale_w.t()) + self.up_scale_b
+            return dense_output + output
+        elif self.type == PET_Types.lora: # Added lora
+            dense_output = nn.functional.linear(input,self.weight) # + self.bias. LoRA also typically doesn't add to the main path bias here
+            output = nn.functional.linear(dense_output,self.lora_A.t())
+            output = ACT2FN["gelu"](output)
+            output = nn.functional.linear(output,self.lora_B.t())
             return dense_output + output
         elif self.type == PET_Types.standard:
             return nn.functional.linear(input, self.weight) + self.bias
@@ -192,7 +203,7 @@ class PETBertSelfAttention(nn.Module):
         self.all_head_size = self.num_attention_heads * self.attention_head_size
 
         qkv_pet_type = config.pet_type
-        if qkv_pet_type == PET_Types.adapters:
+        if qkv_pet_type == PET_Types.adapters or qkv_pet_type == PET_Types.lora:
             qkv_pet_type = PET_Types.standard
 
         self.query = PETLinear(
@@ -350,7 +361,7 @@ class PETBertIntermediate(nn.Module):
         super().__init__()
         self.pet_type = config.pet_type
         linear_pet_type = config.pet_type
-        if(linear_pet_type == PET_Types.adapters):
+        if(linear_pet_type == PET_Types.adapters or linear_pet_type == PET_Types.lora):
             linear_pet_type = PET_Types.standard
         self.dense = PETLinear(
             config.hidden_size,

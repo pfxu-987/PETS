@@ -19,6 +19,7 @@ enum PET_TYPEs {
     BITFIT,
     ADAPTERS,
     STANDARD,
+    LORA
 };
 
 namespace core {
@@ -77,17 +78,56 @@ public:
                     *task_layer_norm_bias);
             break;
         case ADAPTERS:
-            load_new_adapter_task(
-                has_layer_norm,
-                *down_scale_w,
-                *down_scale_b,
-                *up_scale_w,
-                *up_scale_b,
-                *task_layer_norm_weight,
-                *task_layer_norm_bias
-            );
+            if (down_scale_w != nullptr && down_scale_b != nullptr && 
+                up_scale_w != nullptr && up_scale_b != nullptr) {
+                static core::Tensor dummy_ln_w_adapter(nullptr); // Initialize with nullptr
+                static core::Tensor dummy_ln_b_adapter(nullptr); // Initialize with nullptr
+
+                if (has_layer_norm && (!task_layer_norm_weight || !task_layer_norm_bias)) {
+                     std::cerr << "Warning: ADAPTERS task specified has_layer_norm=true, but LayerNorm tensor pointers are null. Using empty tensors for safety." << std::endl;
+                }
+
+                core::Tensor& ref_ln_w = (has_layer_norm && task_layer_norm_weight) ? *task_layer_norm_weight : dummy_ln_w_adapter;
+                core::Tensor& ref_ln_b = (has_layer_norm && task_layer_norm_bias)   ? *task_layer_norm_bias   : dummy_ln_b_adapter;
+
+                load_new_adapter_task(
+                    has_layer_norm,
+                    *down_scale_w,
+                    *down_scale_b,
+                    *up_scale_w,
+                    *up_scale_b,
+                    ref_ln_w,
+                    ref_ln_b
+                );
+            }
+            // If primary adapter pointers are null (e.g., from BertIntermediate), this block is skipped.
             break;
         case STANDARD:
+            break;
+        case LORA:
+            if (down_scale_w != nullptr && down_scale_b != nullptr && 
+                up_scale_w != nullptr && up_scale_b != nullptr) { // Check primary pointers are not null
+                static core::Tensor dummy_ln_w_lora(nullptr); // Initialize with nullptr
+                static core::Tensor dummy_ln_b_lora(nullptr); // Initialize with nullptr
+                
+                if (has_layer_norm && (!task_layer_norm_weight || !task_layer_norm_bias)) {
+                     std::cerr << "Warning: LORA task specified has_layer_norm=true, but LayerNorm tensor pointers are null. Using empty tensors for safety." << std::endl;
+                }
+
+                core::Tensor& ref_ln_w = (has_layer_norm && task_layer_norm_weight) ? *task_layer_norm_weight : dummy_ln_w_lora;
+                core::Tensor& ref_ln_b = (has_layer_norm && task_layer_norm_bias)   ? *task_layer_norm_bias   : dummy_ln_b_lora;
+
+                load_new_lora_task(
+                    has_layer_norm,
+                    *down_scale_w,
+                    *down_scale_b,
+                    *up_scale_w,
+                    *up_scale_b,
+                    ref_ln_w,
+                    ref_ln_b
+                );
+            }
+            // If primary lora pointers are null (e.g., from BertIntermediate), this block is skipped.
             break;
         default:
             break;
@@ -189,6 +229,30 @@ public:
         }
     }
 
+    const core::Tensor& get_lora_A(const int task_id) const {
+        auto iter = lora_A_.find(task_id);
+        assert(iter != lora_A_.end());
+        return iter->second;
+    }
+
+    const core::Tensor& get_lora_A_bias_zero(const int task_id) const {
+        auto iter = lora_A_biases_zero_.find(task_id);
+        assert(iter != lora_A_biases_zero_.end());
+        return iter->second;
+    }
+
+    const core::Tensor& get_lora_B(const int task_id) const {
+        auto iter = lora_B_.find(task_id);
+        assert(iter != lora_B_.end());
+        return iter->second;
+    }
+
+    const core::Tensor& get_lora_B_bias_zero(const int task_id) const {
+        auto iter = lora_B_biases_zero_.find(task_id);
+        assert(iter != lora_B_biases_zero_.end());
+        return iter->second;
+    }
+
     std::shared_ptr<layers::kernels::SparseMatMulCsr> get_sparse_matmul(const int task_id) const {
         return sparse_matmul_map_.at(task_id);
     }
@@ -222,6 +286,12 @@ private:
     std::map<int, core::Tensor> up_scale_biases_;
     std::map<int, core::Tensor> down_scale_weights_;
     std::map<int, core::Tensor> down_scale_biases_;
+
+    // Parameters for LoRA (A and B matrices, and their corresponding zero biases)
+    std::map<int, core::Tensor> lora_A_;
+    std::map<int, core::Tensor> lora_A_biases_zero_;
+    std::map<int, core::Tensor> lora_B_;
+    std::map<int, core::Tensor> lora_B_biases_zero_;
 
     std::map<int, std::shared_ptr<layers::kernels::SparseMatMulCsr>> sparse_matmul_map_;
 
@@ -295,6 +365,28 @@ private:
                 task_norm_biases_.insert(std::make_pair(total_tasks,std::move(task_layer_norm_bias)));
         }
     }
+
+    void load_new_lora_task(
+            bool has_layer_norm,
+            core::Tensor & lora_a,
+            core::Tensor & lora_a_b_zero,
+            core::Tensor & lora_b,
+            core::Tensor & lora_b_b_zero,
+            core::Tensor & task_layer_norm_weight,
+            core::Tensor & task_layer_norm_bias
+             ){
+   
+            lora_A_.insert(std::make_pair(total_tasks,std::move(lora_a)));
+            lora_A_biases_zero_.insert(std::make_pair(total_tasks,std::move(lora_a_b_zero)));
+            lora_B_.insert(std::make_pair(total_tasks,std::move(lora_b)));
+            lora_B_biases_zero_.insert(std::make_pair(total_tasks,std::move(lora_b_b_zero))); 
+
+            if(has_layer_norm){
+                task_norm_weights_.insert(std::make_pair(total_tasks,std::move(task_layer_norm_weight)));
+                task_norm_biases_.insert(std::make_pair(total_tasks,std::move(task_layer_norm_bias)));
+        }
+    }
+
 /* For sparse operations */
     void create_sparse_matmul(const int task_id) {
         // FIXME: determine sparse operator type according to sparse pattern of 

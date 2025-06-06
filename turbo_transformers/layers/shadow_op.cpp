@@ -3,6 +3,7 @@
 #include "turbo_transformers/core/cuda_device_context.h"
 #include "turbo_transformers/layers/kernels/utils.h"
 #include "turbo_transformers/layers/kernels/fused_adapter_kernel.h"
+#include "turbo_transformers/layers/kernels/fused_lora_kernel.h"
 
 namespace turbo_transformers {
 namespace layers {
@@ -271,7 +272,7 @@ void compute_adapter_shadow(
     int batch_size = task_output->shape(0);
     int seq_len = task_output->shape(1);
     int hidden_size = task_output->shape(2);
-    int intermediate_size = down_scale_b.shape(0);
+    int intermediate_size = down_scale_w.shape(1);
     
     // 调用融合的Adapter内核
     kernels::LaunchFusedAdapterKernel(
@@ -293,7 +294,7 @@ void compute_adapter_shadow(
     int batch_size = task_output->shape(0);
     int seq_len = task_output->shape(1);
     int hidden_size = task_output->shape(2);
-    int intermediate_size = down_scale_b.shape(0);
+    int intermediate_size = down_scale_w.shape(1);
     
     // 调用融合的Adapter内核
     kernels::LaunchFusedAdapterKernel(
@@ -328,6 +329,91 @@ void compute_adapter_shadow(
   }
   else if(split_add_transpose){
     std::cerr << "Invalid operation" << std::endl;
+  }
+}
+
+void compute_lora_shadow(
+        const core::PETLayerManager& pet_layer_manager,
+        const int task_id,
+        core::Tensor* task_input,
+        core::Tensor* task_output, 
+        core::Tensor* task_shadow_output,
+        core::Tensor* task_hidden_states,
+        core::Tensor* task_q_out,
+        core::Tensor* task_k_out,
+        core::Tensor* task_v_out, 
+        bool add_bias_act, bool add_input_bias_layernorm,
+        bool split_add_transpose, std::string&name){
+  auto cuda_ctx =
+      turbo_transformers::core::CUDADeviceContext::GetInstance(task_id);
+
+  // Fetch LoRA-specific parameters using dedicated getters with new names.
+  const core::Tensor &lora_A_mat = pet_layer_manager.get_lora_A(task_id); // Renamed from get_lora_A_weight & lora_A_w
+  const core::Tensor &lora_A_b_zero = pet_layer_manager.get_lora_A_bias_zero(task_id);
+  const core::Tensor &lora_B_mat = pet_layer_manager.get_lora_B(task_id); // Renamed from get_lora_B_weight & lora_B_w
+  const core::Tensor &lora_B_b_zero = pet_layer_manager.get_lora_B_bias_zero(task_id);   
+    
+  // Using the FusedLoraKernel
+  // This kernel computes: task_output += lora_B_mat * GELU(lora_A_mat * task_output)
+  if (core::CUDADeviceContext::num_streams > 1) {
+    const float* input_ptr = task_output->data<float>();
+    float* output_ptr = task_output->mutableData<float>();
+    
+    int batch_size = task_output->shape(0);
+    int seq_len = task_output->shape(1);
+    int hidden_size = task_output->shape(2);
+    int intermediate_size = lora_A_mat.shape(1); // LoRA rank from lora_A_mat
+    
+    kernels::LaunchFusedLoraKernel(
+        input_ptr,
+        lora_A_mat.data<float>(), // Use lora_A_mat
+        lora_B_mat.data<float>(), // Use lora_B_mat
+        output_ptr, 
+        batch_size,
+        seq_len,
+        hidden_size,
+        intermediate_size,
+        cuda_ctx.get()->stream());
+  } else {
+    const float* input_ptr = task_output->data<float>();
+    float* output_ptr = task_output->mutableData<float>();
+    
+    int batch_size = task_output->shape(0);
+    int seq_len = task_output->shape(1);
+    int hidden_size = task_output->shape(2);
+    int intermediate_size = lora_A_mat.shape(1); // LoRA rank from lora_A_mat
+    
+    kernels::LaunchFusedLoraKernel(
+        input_ptr,
+        lora_A_mat.data<float>(), // Use lora_A_mat
+        lora_B_mat.data<float>(), // Use lora_B_mat
+        output_ptr, 
+        batch_size,
+        seq_len,
+        hidden_size,
+        intermediate_size,
+        cudaStreamDefault);
+  }
+  
+  if(add_input_bias_layernorm){
+    const core::Tensor &task_layer_norm_bias = pet_layer_manager.get_layer_norm_bias(task_id); 
+    const core::Tensor &task_layer_norm_weight = pet_layer_manager.get_layer_norm_weight(task_id); 
+    
+    if (core::CUDADeviceContext::num_streams > 1) {
+      layers::kernels::AddBiasLayerNorm<float>(
+          *task_input, lora_B_b_zero, task_layer_norm_weight, task_layer_norm_bias,
+          task_output, cuda_ctx.get(), 1e-12, name + "/LoRA/AddBiasLayerNorm");
+    } else {
+      layers::kernels::AddBiasLayerNorm<float>(
+          *task_input, lora_B_b_zero, task_layer_norm_weight, task_layer_norm_bias,
+          task_output, 1e-12, name + "/LoRA/AddBiasLayerNorm");
+    }
+  }
+  else if(add_bias_act){
+    std::cerr << "Invalid operation for LoRA: add_bias_act not typically used with LoRA structure." << std::endl;
+  }
+  else if(split_add_transpose){
+    std::cerr << "Invalid operation for LoRA: split_add_transpose not typically used with LoRA structure." << std::endl;
   }
 }
 
@@ -400,6 +486,8 @@ shadow_op get_shadow_op(
         return compute_adapter_shadow;
     case STANDARD:
         return compute_nothing;
+    case LORA:
+        return compute_lora_shadow;
     default:
         std::cerr<<"Unsupported Shadow Operation!"<<std::endl;
         // 默认返回compute_nothing作为fallback

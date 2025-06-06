@@ -96,6 +96,39 @@ def load_adapter_param(params, layer_norm = True):
             torch.clone(params["LayerNorm.bias"]).contiguous())
         return down_scale_w, down_scale_b,up_scale_w,up_scale_b, task_layer_norm_weight, task_layer_norm_bias
 
+def load_lora_param(params, layer_norm = True):
+    # Updated to use lora_A and lora_B keys
+    lora_A_torch = params["dense.lora_A"] # Formerly dense.lora_A_w
+    tt_lora_A = convert2tt_tensor( # Renamed from tt_lora_A_w
+        torch.clone(lora_A_torch).contiguous())
+    
+    rank = lora_A_torch.size(1)
+    hidden_size_dim = lora_A_torch.size(0) 
+    
+    tt_lora_A_b_zero = convert2tt_tensor(torch.zeros(rank, device=lora_A_torch.device))
+    
+    # Updated to use lora_A and lora_B keys
+    lora_B_torch = params["dense.lora_B"] # Formerly dense.lora_B_w
+    tt_lora_B = convert2tt_tensor( # Renamed from tt_lora_B_w
+        torch.clone(lora_B_torch).contiguous())
+    
+    tt_lora_B_b_zero = convert2tt_tensor(torch.zeros(hidden_size_dim, device=lora_A_torch.device))
+
+    # Return variables must match the names expected by the C++ binding for PETLayerManager::load_new_task
+    down_scale_w = tt_lora_A # This will be passed as lora_a_w (soon to be lora_a_param) to C++ load_new_lora_task
+    down_scale_b = tt_lora_A_b_zero
+    up_scale_w = tt_lora_B   # This will be passed as lora_b_w (soon to be lora_b_param) to C++ load_new_lora_task
+    up_scale_b = tt_lora_B_b_zero
+
+    if not layer_norm:
+        return down_scale_w, down_scale_b, up_scale_w, up_scale_b
+    else:
+        task_layer_norm_weight = convert2tt_tensor(
+            torch.clone(params["LayerNorm.weight"]).contiguous())
+        task_layer_norm_bias = convert2tt_tensor(
+            torch.clone(params["LayerNorm.bias"]).contiguous())
+        return down_scale_w, down_scale_b, up_scale_w, up_scale_b, task_layer_norm_weight, task_layer_norm_bias
+
 
 class BertEmbeddings(cxx.BERTEmbedding):
     def __call__(self,
@@ -170,29 +203,50 @@ class SharedBertIntermediate(cxx.BertIntermediate):
                 device))
 
     def load_new_task_from_torch(self, intermediate: PETBertIntermediate):
-        intermediate_params = to_param_dict(intermediate)
-        
-        pet_type = intermediate.pet_type
-        
+        # Determine the effective PET type for the C++ layer based on the
+        # configuration of the dense linear layer within PETBertIntermediate.
+        # PETBertIntermediate sets its internal dense layer (intermediate.dense)
+        # to PET_Types.standard if config.pet_type is Adapters or LoRA.
+        effective_pet_type_for_cpp = intermediate.dense.type
+
         task_weight_mask = create_empty_if_none(None)
         task_diff = create_empty_if_none(None)
         task_bias = create_empty_if_none(None)
 
-        if pet_type == PET_Types.maskbert:
-            # maskbert only masks weights
-            task_weight_mask = load_maskbert_param(intermediate_params)
+        # Load PET-specific parameters only if the dense layer itself is configured
+        # with a specific PET method (MaskBERT, DiffPruning, BitFit).
+        # These parameters would be attributes of intermediate.dense (which is a PETLinear instance).
+        if effective_pet_type_for_cpp == PET_Types.maskbert:
+            if hasattr(intermediate.dense, 'binary_mask'):
+                task_weight_mask = convert2tt_tensor(
+                    torch.clone(torch.t(intermediate.dense.binary_mask).contiguous()))
+            else:
+                print(f"Warning: SharedBertIntermediate - PETBertIntermediate.dense.binary_mask not found for MaskBERT type (Task {self.get_num_tasks()}).") # Using self.get_num_tasks() as a proxy for current task count if available
 
-        elif pet_type == PET_Types.diff_pruning:
-            task_diff, task_bias = load_diff_param(intermediate_params, layer_norm = False)
+        elif effective_pet_type_for_cpp == PET_Types.diff_pruning:
+            if hasattr(intermediate.dense, 'diff') and hasattr(intermediate.dense, 'bias'):
+                task_diff = convert2tt_tensor(
+                    torch.clone(torch.t(intermediate.dense.diff).contiguous()))
+                task_bias = convert2tt_tensor( # Bias for DiffPruning comes from the diff layer itself
+                    torch.clone(intermediate.dense.bias).contiguous())
+            else:
+                print(f"Warning: SharedBertIntermediate - PETBertIntermediate.dense.diff or .bias not found for DiffPruning type (Task {self.get_num_tasks()}).")
 
-        elif pet_type == PET_Types.bitfit:
-            task_bias = load_bitfit_param(intermediate_params, layer_norm = False)
+        elif effective_pet_type_for_cpp == PET_Types.bitfit:
+            if hasattr(intermediate.dense, 'bias'):
+                task_bias = convert2tt_tensor( # Bias for BitFit
+                    torch.clone(intermediate.dense.bias).contiguous())
+            else:
+                print(f"Warning: SharedBertIntermediate - PETBertIntermediate.dense.bias not found for BitFit type (Task {self.get_num_tasks()}).")
         
-        elif pet_type == PET_Types.adapters:
-            pass
-
-        # call cxx module
-        self.load_new_task(int(pet_type), task_weight_mask, task_diff,  task_bias)
+        # When effective_pet_type_for_cpp is PET_Types.standard (e.g., for original Adapters or LoRA paths),
+        # task_weight_mask, task_diff, and task_bias will remain empty (resulting in nullptr in C++).
+        # This is correct as no specific PET params are applied directly by BertIntermediate's own matmul/bias.
+        
+        # Call C++ module with the determined effective PET type.
+        # For Adapters/LoRA, effective_pet_type_for_cpp will be PET_Types.standard.
+        # The C++ BertIntermediate::load_new_task will then also use STANDARD.
+        self.load_new_task(int(effective_pet_type_for_cpp), task_weight_mask, task_diff,  task_bias)
 
 
 
@@ -265,6 +319,8 @@ class SharedBertOutput(cxx.BertOutput):
             task_bias, task_layer_norm_weight, task_layer_norm_bias = load_bitfit_param(params)
         elif pet_type == PET_Types.adapters:
             down_scale_w, down_scale_b, up_scale_w, up_scale_b, task_layer_norm_weight, task_layer_norm_bias = load_adapter_param(params)
+        elif pet_type == PET_Types.lora:
+            down_scale_w, down_scale_b, up_scale_w, up_scale_b, task_layer_norm_weight, task_layer_norm_bias = load_lora_param(params)
 
         # call cxx module
         self.load_new_task(int(pet_type), task_weight_mask, task_diff, task_bias, task_layer_norm_weight, task_layer_norm_bias, down_scale_w, down_scale_b, up_scale_w, up_scale_b)
@@ -414,6 +470,23 @@ class SharedBertAttention(cxx.BertAttention):
                 down_scale_b = convert2tt_tensor(params['output.dense.down_scale_b'])
                 up_scale_w = convert2tt_tensor(params['output.dense.up_scale_w'])
                 up_scale_b = convert2tt_tensor(params['output.dense.up_scale_b'])
+
+            elif pet_type == PET_Types.lora:
+                output_layerNorm_weight =  convert2tt_tensor(params['output.LayerNorm.weight'])
+                output_layerNorm_bias = convert2tt_tensor(params['output.LayerNorm.bias'])
+                
+                # Updated to use lora_A key and renamed variable
+                lora_A_torch_attn = params['output.dense.lora_A'] # Formerly output.dense.lora_A_w
+                down_scale_w = convert2tt_tensor(torch.clone(lora_A_torch_attn).contiguous()) # Stays down_scale_w for C++ binding
+                
+                rank_attn = lora_A_torch_attn.size(1)
+                hidden_size_attn = lora_A_torch_attn.size(0) 
+                
+                down_scale_b = convert2tt_tensor(torch.zeros(rank_attn, device=lora_A_torch_attn.device))
+                
+                # Updated to use lora_B key
+                up_scale_w = convert2tt_tensor(torch.clone(params['output.dense.lora_B']).contiguous()) # Stays up_scale_w for C++ binding
+                up_scale_b = convert2tt_tensor(torch.zeros(hidden_size_attn, device=lora_A_torch_attn.device))
 
             # TODO: real mask
             self.load_new_task(int(pet_type), qkv_weight_mask, qkv_weight_diff, qkv_bias,

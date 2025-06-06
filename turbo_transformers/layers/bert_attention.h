@@ -56,7 +56,7 @@ class BertAttention : public MultiHeadedAttention {
 
 
   void load_new_task(
-    int & pet_type,
+    int pet_type_int,
     core::Tensor &task_qkv_weight_mask, 
     core::Tensor &task_qkv_diff,
     core::Tensor &task_qkv_bias,
